@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "ultravox-client"
+version = "0.0.1"
+packages = [
+    { include = "ultravox_client", from = "." },
+]
+description = "Python client SDK for Ultravox."
+authors = ["Fixie Team <hello@fixie.ai>"]
+license = "Apache-2.0"
+readme = "README.md"
+homepage = "https://ultravox.ai"
+repository = "https://github.com/fixie-ai/ultravox-client-sdk-python"
+documentation = "https://fixie-ai.github.io/ultradox/"
+keywords = ["ultravox", "audio", "realtime", "artificial intelligence"]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+livekit = "0.8"
+websockets = "^12.0"
+pyee = "^11.0.1"
+sounddevice = "^0.5.0"
+numpy = "^2.1.1"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.1.3"
+pytest-mock = "^3.10.0"
+pytest-xdist = "^3.3"
+pyright = "^1.1.379"
+deptry = "^0.12.0"
+types-mock = "^5.1.0.2"
+pytest-asyncio = "^0.23.7"
+ruff = "^0.4.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.deptry]
+extend_exclude = [".*test\\.py", ".*tool\\.py"]
