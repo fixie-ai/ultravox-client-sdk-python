@@ -4,7 +4,6 @@ from collections import deque
 from typing import AsyncGenerator
 
 import numpy as np
-import sounddevice
 
 
 class AudioSource(abc.ABC):
@@ -58,6 +57,12 @@ class LocalAudioSource(AudioSource):
         super().__init__(sample_rate, channels)
 
     async def stream(self) -> AsyncGenerator[bytes, None]:
+        try:
+            import sounddevice
+        except ImportError:
+            raise ImportError(
+                "The 'sounddevice' module is required for LocalAudioSource."
+            )
         queue: asyncio.Queue[bytes] = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
@@ -83,6 +88,12 @@ class LocalAudioSink(AudioSink):
     """AudioSink that plays to the default audio device."""
 
     def __init__(self, sample_rate: int = 48000, num_channels: int = 1) -> None:
+        try:
+            import sounddevice
+        except ImportError:
+            raise ImportError(
+                "The 'sounddevice' module is required for LocalAudioSink."
+            )
         super().__init__(sample_rate=sample_rate, num_channels=num_channels)
         self._queue: deque[bytes] = deque()
         self._stream: sounddevice.OutputStream | None = None
