@@ -8,7 +8,11 @@ import ultravox_client as uv
 
 
 async def main():
-    session = uv.UltravoxSession(experimental_messages=bool(args.experimental_messages))
+    session = uv.UltravoxSession(
+        experimental_messages=set(args.experimental_messages.split(","))
+        if args.experimental_messages
+        else None
+    )
     state = await session.join_call(args.join_url)
     last_transcript = None
     done = asyncio.Event()
@@ -71,8 +75,8 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--experimental-messages",
-        action="store_true",
-        help="Enables experimental messages",
+        type=str,
+        help="Comma-separated list of experimental messages to enable (e.g. 'debug')",
     )
 
     args = parser.parse_args()

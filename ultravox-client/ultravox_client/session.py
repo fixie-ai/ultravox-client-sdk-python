@@ -168,14 +168,14 @@ class UltravoxSessionState(patched_event_emitter.PatchedAsyncIOEventEmitter):
 class UltravoxSession:
     """Manages a single session with Ultravox."""
 
-    def __init__(self, experimental_messages: bool = False) -> None:
+    def __init__(self, experimental_messages: set[str] | None = None) -> None:
         self._state = UltravoxSessionState()
         self._room: rtc.Room | None = None
         self._socket: websockets.WebSocketClientProtocol | None = None
         self._receive_task: asyncio.Task | None = None
         self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
         self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
-        self._experimental_messages = experimental_messages
+        self._experimental_messages = experimental_messages or set()
 
     @property
     def state(self):
@@ -193,7 +193,7 @@ class UltravoxSession:
         if self._experimental_messages:
             url_parts = list(urllib.parse.urlparse(join_url))
             query = dict(urllib.parse.parse_qsl(url_parts[4]))
-            query["experimental_messages"] = "true"
+            query["experimentalMessages"] = ",".join(self._experimental_messages)
             url_parts[4] = urllib.parse.urlencode(query)
             join_url = urllib.parse.urlunparse(url_parts)
         self._socket = await websockets.connect(join_url)

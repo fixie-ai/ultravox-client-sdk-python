@@ -18,7 +18,7 @@ import signal
 import ultravox_client as uv
 
 session = uv.UltravoxSession()
-state = await session.joinCall(os.getenv("JOIN_URL", None))
+state = await session.join_call(os.getenv("JOIN_URL", None))
 done = asyncio.Event()
 loop = asyncio.get_running_loop()
 
@@ -30,7 +30,7 @@ def on_status():
 loop.add_signal_handler(signal.SIGINT, lambda: done.set())
 loop.add_signal_handler(signal.SIGTERM, lambda: done.set())
 await done.wait()
-await session.leaveCall()
+await session.leave_call()
 ```
 
 See the included example app for a more complete example. To get a `joinUrl`, you'll want to integrate your server with the [Ultravox REST API](https://fixie-ai.github.io/ultradox/).
