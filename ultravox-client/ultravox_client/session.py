@@ -181,7 +181,7 @@ class UltravoxSession:
     def state(self):
         return self._state
 
-    async def joinCall(
+    async def join_call(
         self,
         join_url: str,
         source: audio.AudioSource | None = None,
@@ -206,10 +206,10 @@ class UltravoxSession:
         self._receive_task = asyncio.create_task(self._socket_receive())
         return self._state
 
-    async def leaveCall(self):
+    async def leave_call(self):
         await self._disconnect()
 
-    async def sendText(self, text: str):
+    async def send_text(self, text: str):
         if not self._state.status.is_live():
             raise RuntimeError(
                 f"Cannot send text while not connected. Current status is {self._state.status}"

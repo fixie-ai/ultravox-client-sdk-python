@@ -9,7 +9,7 @@ import ultravox_client as uv
 
 async def main():
     session = uv.UltravoxSession(experimental_messages=bool(args.experimental_messages))
-    state = await session.joinCall(args.join_url)
+    state = await session.join_call(args.join_url)
     last_transcript = None
     done = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -52,7 +52,7 @@ async def main():
     loop.add_signal_handler(signal.SIGINT, lambda: done.set())
     loop.add_signal_handler(signal.SIGTERM, lambda: done.set())
     await done.wait()
-    await session.leaveCall()
+    await session.leave_call()
 
 
 if __name__ == "__main__":
