@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "ultravox-client"
-version = "0.0.2"
+version = "0.0.3"
 packages = [
     { include = "ultravox_client", from = "." },
 ]

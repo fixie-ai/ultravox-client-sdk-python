@@ -22,12 +22,21 @@ class _AudioSourceToSendTrackAdapter:
         self._source = source
         self._rtc_source = rtc.AudioSource(source.sample_rate, source.num_channels)
         self._task: asyncio.Task | None = None
+        self._enabled = True
 
     @property
     def track(self):
         if not self._track:
             raise Exception("track not initialized")
         return self._track
+
+    @property
+    def enabled(self):
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value):
+        self._enabled = value
 
     def start(self):
         self._track = rtc.LocalAudioTrack.create_audio_track("input", self._rtc_source)
@@ -38,6 +47,8 @@ class _AudioSourceToSendTrackAdapter:
 
     async def _pump(self):
         async for chunk in self._source.stream():
+            if not self._enabled:
+                chunk = b"\x00" * len(chunk)
             frame = rtc.AudioFrame(
                 chunk,
                 self._source.sample_rate,
@@ -110,6 +121,9 @@ class UltravoxSessionStatus(enum.Enum):
         }
 
 
+Role = Literal["user", "agent"]
+
+
 @dataclasses.dataclass(frozen=True)
 class Transcript:
     """A transcription of a single utterance."""
@@ -118,22 +132,35 @@ class Transcript:
     """The possibly-incomplete text of an utterance."""
     final: bool
     """Whether the text is complete or the utterance is ongoing."""
-    speaker: Literal["user", "agent"]
+    speaker: Role
     """Who emitted the utterance."""
     medium: Literal["text", "voice"]
     """The medium through which the utterance was emitted."""
 
 
-class UltravoxSessionState(patched_event_emitter.PatchedAsyncIOEventEmitter):
-    """A state object for an UltravoxSession.
-    UltravoxSessionState is an event emitter that manages the state of a single
-    session and notifies listeners when the state changes.
+class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
+    """Manages a single session with Ultravox and emits events to notify
+    consumers of state changes.  The following events are emitted:
+
+      - "status": emitted when the status of the session changes.
+      - "transcripts": emitted when a transcript is added or updated.
+      - "experimental_message": emitted when an experimental message is received.
+           The message is included as the first argument to the event handler.
+      - "user_muted": emitted when the user's microphone is muted or unmuted.
+      - "agent_muted": emitted when the agent is muted or unmuted.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, experimental_messages: set[str] | None = None) -> None:
         super().__init__()
         self._transcripts: list[Transcript] = []
         self._status = UltravoxSessionStatus.DISCONNECTED
+
+        self._room: rtc.Room | None = None
+        self._socket: websockets.WebSocketClientProtocol | None = None
+        self._receive_task: asyncio.Task | None = None
+        self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
+        self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
+        self._experimental_messages = experimental_messages or set()
 
     @property
     def status(self):
@@ -143,53 +170,24 @@ class UltravoxSessionState(patched_event_emitter.PatchedAsyncIOEventEmitter):
     def transcripts(self):
         return self._transcripts.copy()
 
-    @status.setter
-    def status(self, value):
-        if self._status == value:
-            return
-        self._status = value
-        self.emit("status")
-
-    def add_or_update_transcript(self, transcript: Transcript):
-        if (
-            self._transcripts
-            and not self._transcripts[-1].final
-            and self._transcripts[-1].speaker == transcript.speaker
-        ):
-            self._transcripts[-1] = transcript
-        else:
-            self._transcripts.append(transcript)
-        self.emit("transcript")
-
-    def experimental_message(self, message: dict):
-        self.emit("experimental_message", message)
-
-
-class UltravoxSession:
-    """Manages a single session with Ultravox."""
-
-    def __init__(self, experimental_messages: set[str] | None = None) -> None:
-        self._state = UltravoxSessionState()
-        self._room: rtc.Room | None = None
-        self._socket: websockets.WebSocketClientProtocol | None = None
-        self._receive_task: asyncio.Task | None = None
-        self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
-        self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
-        self._experimental_messages = experimental_messages or set()
+    @property
+    def user_muted(self):
+        return not self._source_adapter.enabled if self._source_adapter else False
 
     @property
-    def state(self):
-        return self._state
+    def agent_muted(self):
+        return not self._sink_adapter.enabled if self._sink_adapter else False
 
     async def join_call(
         self,
         join_url: str,
         source: audio.AudioSource | None = None,
         sink: audio.AudioSink | None = None,
-    ) -> UltravoxSessionState:
-        if self._state.status != UltravoxSessionStatus.DISCONNECTED:
+    ) -> None:
+        """Connects to a call using the given joinUrl."""
+        if self._status != UltravoxSessionStatus.DISCONNECTED:
             raise RuntimeError("Cannot join a new call while already in a call.")
-        self._state.status = UltravoxSessionStatus.CONNECTING
+        self._update_status(UltravoxSessionStatus.CONNECTING)
         if self._experimental_messages:
             url_parts = list(urllib.parse.urlparse(join_url))
             query = dict(urllib.parse.parse_qsl(url_parts[4]))
@@ -204,17 +202,38 @@ class UltravoxSession:
             sink or audio.LocalAudioSink()
         )
         self._receive_task = asyncio.create_task(self._socket_receive())
-        return self._state
 
     async def leave_call(self):
+        """Leaves the current call (if any)."""
         await self._disconnect()
 
     async def send_text(self, text: str):
-        if not self._state.status.is_live():
+        """Sends a message via text. The agent will also respond via text."""
+        if not self._status.is_live():
             raise RuntimeError(
-                f"Cannot send text while not connected. Current status is {self._state.status}"
+                f"Cannot send text while not connected. Current status is {self.status}"
             )
         await self._send_data({"type": "input_text_message", "text": text})
+
+    def mute(self, roles: set[Role]):
+        """Mutes the user, the agent, or both. If a role is already muted, this method
+        does nothing for that role."""
+        if "user" in roles and self._source_adapter and not self.user_muted:
+            self._source_adapter.enabled = False
+            self.emit("user_muted")
+        elif "agent" in roles and self._sink_adapter and not self.agent_muted:
+            self._sink_adapter.enabled = False
+            self.emit("agent_muted")
+
+    def unmute(self, roles: set[Role]):
+        """Unmutes the user, the agent, or both. If a role is not muted, this method
+        does nothing for that role."""
+        if "user" in roles and self._source_adapter and self.user_muted:
+            self._source_adapter.enabled = True
+            self.emit("user_muted")
+        elif "agent" in roles and self._sink_adapter and self.agent_muted:
+            self._sink_adapter.enabled = True
+            self.emit("agent_muted")
 
     async def _socket_receive(self):
         assert self._socket
@@ -236,7 +255,7 @@ class UltravoxSession:
                 self._room.on("data_received", self._on_data_received)
 
                 await self._room.connect(msg["roomUrl"], msg["token"])
-                self._state.status = UltravoxSessionStatus.IDLE
+                self._update_status(UltravoxSessionStatus.IDLE)
                 opts = rtc.TrackPublishOptions()
                 opts.source = rtc.TrackSource.SOURCE_MICROPHONE
                 assert self._source_adapter
@@ -246,9 +265,9 @@ class UltravoxSession:
                 )
 
     async def _disconnect(self):
-        if self.state.status == UltravoxSessionStatus.DISCONNECTED:
+        if self._status == UltravoxSessionStatus.DISCONNECTED:
             return
-        self.state.status = UltravoxSessionStatus.DISCONNECTING
+        self._update_status(UltravoxSessionStatus.DISCONNECTING)
         await async_close.async_close(
             self._source_adapter.close() if self._source_adapter else None,
             self._sink_adapter.close() if self._sink_adapter else None,
@@ -261,7 +280,7 @@ class UltravoxSession:
         self._source_adapter = None
         self._sink_adapter = None
         self._receive_task = None
-        self.state.status = UltravoxSessionStatus.DISCONNECTED
+        self._update_status(UltravoxSessionStatus.DISCONNECTED)
 
     def _on_track_subscribed(
         self,
@@ -279,11 +298,11 @@ class UltravoxSession:
             case "state":
                 match msg.get("state", None):
                     case "listening":
-                        self._state.status = UltravoxSessionStatus.LISTENING
+                        self._update_status(UltravoxSessionStatus.LISTENING)
                     case "thinking":
-                        self._state.status = UltravoxSessionStatus.THINKING
+                        self._update_status(UltravoxSessionStatus.THINKING)
                     case "speaking":
-                        self._state.status = UltravoxSessionStatus.SPEAKING
+                        self._update_status(UltravoxSessionStatus.SPEAKING)
             case "transcript":
                 transcript = Transcript(
                     msg["transcript"]["text"],
@@ -291,19 +310,17 @@ class UltravoxSession:
                     "user",
                     msg["transcript"]["medium"],
                 )
-                self._state.add_or_update_transcript(transcript)
+                self._add_or_update_transcript(transcript)
             case "voice_synced_transcript" | "agent_text_transcript":
                 medium = "voice" if msg["type"] == "voice_synced_transcript" else "text"
                 if msg.get("text", None):
                     transcript = Transcript(
                         msg["text"], msg.get("final", False), "agent", medium
                     )
-                    self._state.add_or_update_transcript(transcript)
+                    self._add_or_update_transcript(transcript)
                 elif msg.get("delta", None):
                     last_transcript = (
-                        self._state._transcripts[-1]
-                        if self._state._transcripts
-                        else None
+                        self._transcripts[-1] if self._transcripts else None
                     )
                     if last_transcript and last_transcript.speaker == "agent":
                         transcript = Transcript(
@@ -312,11 +329,28 @@ class UltravoxSession:
                             "agent",
                             medium,
                         )
-                        self._state.add_or_update_transcript(transcript)
+                        self._add_or_update_transcript(transcript)
             case _:
                 if self._experimental_messages:
-                    self._state.experimental_message(msg)
+                    self.emit("experimental_message", msg)
 
     async def _send_data(self, msg: dict):
         assert self._room
         await self._room.local_participant.publish_data(json.dumps(msg).encode("utf-8"))
+
+    def _update_status(self, status: UltravoxSessionStatus):
+        if self._status == status:
+            return
+        self._status = status
+        self.emit("status")
+
+    def _add_or_update_transcript(self, transcript: Transcript):
+        if (
+            self._transcripts
+            and not self._transcripts[-1].final
+            and self._transcripts[-1].speaker == transcript.speaker
+        ):
+            self._transcripts[-1] = transcript
+        else:
+            self._transcripts.append(transcript)
+        self.emit("transcripts")

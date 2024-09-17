@@ -13,14 +13,12 @@ async def main():
         if args.experimental_messages
         else None
     )
-    state = await session.join_call(args.join_url)
     last_transcript = None
     done = asyncio.Event()
-    loop = asyncio.get_running_loop()
 
-    @state.on("status")
+    @session.on("status")
     def on_status():
-        status = state.status
+        status = session.status
         logging.info(f"status: {status}")
         if status == uv.UltravoxSessionStatus.LISTENING:
             # Prompt the user to make it clear they're expected to speak next.
@@ -28,13 +26,13 @@ async def main():
         elif status == uv.UltravoxSessionStatus.DISCONNECTED:
             done.set()
 
-    @state.on("transcript")
+    @session.on("transcripts")
     def on_transcript():
         def transcript_to_str(transcript):
             return f"{'User' if transcript.speaker == 'user' else 'Agent'}:  {transcript.text}"
 
         nonlocal last_transcript
-        transcript = state.transcripts[-1]
+        transcript = session.transcripts[-1]
         if last_transcript and last_transcript.speaker != transcript.speaker:
             print(transcript_to_str(last_transcript), end="\n")
             last_transcript = None
@@ -44,15 +42,17 @@ async def main():
         last_transcript = transcript if not transcript.final else None
         print(display_text, end="\n" if transcript.final else "\r")
 
-    @state.on("experimental_message")
+    @session.on("experimental_message")
     def on_experimental_message(message):
         logging.info(f"Received experimental message: {message}")
 
-    @state.on("error")
+    @session.on("error")
     def on_error(error):
         logging.exception("Client error", exc_info=error)
         done.set()
 
+    await session.join_call(args.join_url)
+    loop = asyncio.get_running_loop()
     loop.add_signal_handler(signal.SIGINT, lambda: done.set())
     loop.add_signal_handler(signal.SIGTERM, lambda: done.set())
     await done.wait()
