@@ -146,8 +146,8 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
       - "transcripts": emitted when a transcript is added or updated.
       - "experimental_message": emitted when an experimental message is received.
            The message is included as the first argument to the event handler.
-      - "user_muted": emitted when the user's microphone is muted or unmuted.
-      - "agent_muted": emitted when the agent is muted or unmuted.
+      - "mic_muted": emitted when the user's microphone is muted or unmuted.
+      - "speaker_muted": emitted when the user's "speaker" (the agent) is muted or unmuted.
     """
 
     def __init__(self, experimental_messages: set[str] | None = None) -> None:
@@ -161,6 +161,8 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
         self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
         self._experimental_messages = experimental_messages or set()
+        self._mic_muted = False
+        self._speaker_muted = False
 
     @property
     def status(self):
@@ -171,12 +173,16 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         return self._transcripts.copy()
 
     @property
-    def user_muted(self):
+    def mic_muted(self) -> bool:
+        """Indicates whether the microphone is muted."""
         return not self._source_adapter.enabled if self._source_adapter else False
+    # TODO use the above or:   return self._mic_muted
 
     @property
-    def agent_muted(self):
+    def speaker_muted(self) -> bool:
+        """Indicates whether the speaker is muted."""
         return not self._sink_adapter.enabled if self._sink_adapter else False
+        # TODO use above or:  return self._speaker_muted
 
     async def join_call(
         self,
@@ -215,25 +221,37 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             )
         await self._send_data({"type": "input_text_message", "text": text})
 
-    def mute(self, roles: set[Role]):
-        """Mutes the user, the agent, or both. If a role is already muted, this method
-        does nothing for that role."""
-        if "user" in roles and self._source_adapter and not self.user_muted:
-            self._source_adapter.enabled = False
-            self.emit("user_muted")
-        elif "agent" in roles and self._sink_adapter and not self.agent_muted:
-            self._sink_adapter.enabled = False
-            self.emit("agent_muted")
+    def mute_mic(self) -> None:
+        """Mutes the user's microphone."""
+        if not self.mic_muted:
+            self.mic_muted = True
+            if self._source_adapter:
+                self._source_adapter.enabled = False
+            self.emit("mic_muted")
 
-    def unmute(self, roles: set[Role]):
-        """Unmutes the user, the agent, or both. If a role is not muted, this method
-        does nothing for that role."""
-        if "user" in roles and self._source_adapter and self.user_muted:
-            self._source_adapter.enabled = True
-            self.emit("user_muted")
-        elif "agent" in roles and self._sink_adapter and self.agent_muted:
-            self._sink_adapter.enabled = True
-            self.emit("agent_muted")
+    def unmute_mic(self) -> None:
+        """Unmutes the user's microphone."""
+        if self.mic_muted:
+            self.mic_muted = False
+            if self._source_adapter:
+                self._source_adapter.enabled = True
+            self.emit("mic_muted")
+
+    def mute_speaker(self) -> None:
+        """Mutes the user's "speaker" (the agent)."""
+        if not self.speaker_muted:
+            self.speaker_muted = True
+            if self._sink_adapter:
+                self._sink_adapter.enabled = False
+            self.emit("speaker_muted")
+
+    def unmute_speaker(self) -> None:
+        """Unmutes the user's "speaker" (the agent)."""
+        if self.speaker_muted:
+            self.speaker_muted = False
+            if self._sink_adapter:
+                self._sink_adapter.enabled = True
+            self.emit("speaker_muted")
 
     async def _socket_receive(self):
         assert self._socket
