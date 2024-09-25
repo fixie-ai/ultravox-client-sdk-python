@@ -54,3 +54,6 @@ env.bak/
 venv.bak/
 
 .ruff_cache/
+
+# Ignore .DS_Store files on MacOS
+.DS_Store
