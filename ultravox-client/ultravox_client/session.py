@@ -179,7 +179,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
     def speaker_muted(self) -> bool:
         """Indicates whether the user's "speaker" (agent's audio output) is muted."""
         return not self._sink_adapter.enabled if self._sink_adapter else False
-    
+
     @mic_muted.setter
     def mic_muted(self, mute: bool) -> None:
         """Sets the mute state of the user's microphone."""
