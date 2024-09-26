@@ -161,8 +161,6 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
         self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
         self._experimental_messages = experimental_messages or set()
-        self._mic_muted = False
-        self._speaker_muted = False
 
     @property
     def status(self):
@@ -176,13 +174,27 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
     def mic_muted(self) -> bool:
         """Indicates whether the microphone is muted."""
         return not self._source_adapter.enabled if self._source_adapter else False
-    # TODO use the above or:   return self._mic_muted
 
     @property
     def speaker_muted(self) -> bool:
-        """Indicates whether the speaker is muted."""
+        """Indicates whether the user's "speaker" (agent's audio output) is muted."""
         return not self._sink_adapter.enabled if self._sink_adapter else False
-        # TODO use above or:  return self._speaker_muted
+    
+    @mic_muted.setter
+    def mic_muted(self, mute: bool) -> None:
+        """Sets the mute state of the user's microphone."""
+        if self.mic_muted != mute:
+            if self._source_adapter:
+                self._source_adapter.enabled = not mute
+            self.emit("mic_muted", mute)
+
+    @speaker_muted.setter
+    def speaker_muted(self, mute: bool) -> None:
+        """Sets the mute state of the user's "speaker" (the agent's audio output)."""
+        if self.speaker_muted != mute:
+            if self._sink_adapter:
+                self._sink_adapter.enabled = not mute
+            self.emit("speaker_muted", mute)
 
     async def join_call(
         self,
@@ -221,37 +233,13 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             )
         await self._send_data({"type": "input_text_message", "text": text})
 
-    def mute_mic(self) -> None:
-        """Mutes the user's microphone."""
-        if not self.mic_muted:
-            self.mic_muted = True
-            if self._source_adapter:
-                self._source_adapter.enabled = False
-            self.emit("mic_muted")
+    def toggle_mic_mute(self) -> None:
+        """Toggles the mute state of the user's microphone."""
+        self.mic_muted = not self.mic_muted
 
-    def unmute_mic(self) -> None:
-        """Unmutes the user's microphone."""
-        if self.mic_muted:
-            self.mic_muted = False
-            if self._source_adapter:
-                self._source_adapter.enabled = True
-            self.emit("mic_muted")
-
-    def mute_speaker(self) -> None:
-        """Mutes the user's "speaker" (the agent)."""
-        if not self.speaker_muted:
-            self.speaker_muted = True
-            if self._sink_adapter:
-                self._sink_adapter.enabled = False
-            self.emit("speaker_muted")
-
-    def unmute_speaker(self) -> None:
-        """Unmutes the user's "speaker" (the agent)."""
-        if self.speaker_muted:
-            self.speaker_muted = False
-            if self._sink_adapter:
-                self._sink_adapter.enabled = True
-            self.emit("speaker_muted")
+    def toggle_speaker_mute(self) -> None:
+        """Toggles the mute state of the user's "speaker" (the agent's audio output)."""
+        self.speaker_muted = not self.speaker_muted
 
     async def _socket_receive(self):
         assert self._socket
