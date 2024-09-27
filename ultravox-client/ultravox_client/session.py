@@ -147,7 +147,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
       - "experimental_message": emitted when an experimental message is received.
            The message is included as the first argument to the event handler.
       - "mic_muted": emitted when the user's microphone is muted or unmuted.
-      - "speaker_muted": emitted when the user's "speaker" (the agent) is muted or unmuted.
+      - "speaker_muted": emitted when the user's speaker (i.e. output audio from the agent) is muted or unmuted.
     """
 
     def __init__(self, experimental_messages: set[str] | None = None) -> None:
