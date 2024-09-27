@@ -233,7 +233,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             )
         await self._send_data({"type": "input_text_message", "text": text})
 
-    def toggle_mic_mute(self) -> None:
+    def toggle_mic_muted(self) -> None:
         """Toggles the mute state of the user's microphone."""
         self.mic_muted = not self.mic_muted
 
