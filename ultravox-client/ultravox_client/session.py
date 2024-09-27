@@ -175,11 +175,6 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         """Indicates whether the microphone is muted."""
         return not self._source_adapter.enabled if self._source_adapter else False
 
-    @property
-    def speaker_muted(self) -> bool:
-        """Indicates whether the user's speaker (i.e. output audio from the agent) is muted."""
-        return not self._sink_adapter.enabled if self._sink_adapter else False
-
     @mic_muted.setter
     def mic_muted(self, mute: bool) -> None:
         """Sets the mute state of the user's microphone."""
@@ -188,6 +183,15 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                 self._source_adapter.enabled = not mute
             self.emit("mic_muted", mute)
 
+    def toggle_mic_muted(self) -> None:
+        """Toggles the mute state of the user's microphone."""
+        self.mic_muted = not self.mic_muted
+
+    @property
+    def speaker_muted(self) -> bool:
+        """Indicates whether the user's speaker (i.e. output audio from the agent) is muted."""
+        return not self._sink_adapter.enabled if self._sink_adapter else False
+
     @speaker_muted.setter
     def speaker_muted(self, mute: bool) -> None:
         """Sets the mute state of the user's speaker (i.e. output audio from the agent)."""
@@ -195,6 +199,10 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             if self._sink_adapter:
                 self._sink_adapter.enabled = not mute
             self.emit("speaker_muted", mute)
+
+    def toggle_speaker_muted(self) -> None:
+        """Toggles the mute state of the user's speaker (i.e. output audio from the agent)."""
+        self.speaker_muted = not self.speaker_muted
 
     async def join_call(
         self,
@@ -232,14 +240,6 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                 f"Cannot send text while not connected. Current status is {self.status}"
             )
         await self._send_data({"type": "input_text_message", "text": text})
-
-    def toggle_mic_muted(self) -> None:
-        """Toggles the mute state of the user's microphone."""
-        self.mic_muted = not self.mic_muted
-
-    def toggle_speaker_muted(self) -> None:
-        """Toggles the mute state of the user's speaker (i.e. output audio from the agent)."""
-        self.speaker_muted = not self.speaker_muted
 
     async def _socket_receive(self):
         assert self._socket
