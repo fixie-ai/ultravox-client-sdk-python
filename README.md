@@ -15,3 +15,9 @@ pip install ultravox-client
 * example contains a working example
 
 This project uses [Poetry](https://python-poetry.org/) to manage dependencies along with [Just](https://just.systems/) for shorthand commands.
+
+## Publishing to PyPi
+1. Bump version number in `ultravox_client/pyproject.toml`
+1. Build the SDK: `poetry build`
+1. Configure creds for PyPI:  `poetry config pypi-token.pypi <your_token_here>`
+1. Publish to PyPI: `poetry publish`
