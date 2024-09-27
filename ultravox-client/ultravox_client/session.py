@@ -237,8 +237,8 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         """Toggles the mute state of the user's microphone."""
         self.mic_muted = not self.mic_muted
 
-    def toggle_speaker_mute(self) -> None:
-        """Toggles the mute state of the user's "speaker" (the agent's audio output)."""
+    def toggle_speaker_muted(self) -> None:
+        """Toggles the mute state of the user's speaker (i.e. output audio from the agent)."""
         self.speaker_muted = not self.speaker_muted
 
     async def _socket_receive(self):
