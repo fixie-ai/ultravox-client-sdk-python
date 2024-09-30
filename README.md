@@ -18,6 +18,4 @@ This project uses [Poetry](https://python-poetry.org/) to manage dependencies al
 
 ## Publishing to PyPi
 1. Bump version number in `ultravox_client/pyproject.toml`
-1. Build the SDK: `poetry build`
-1. Configure creds for PyPI:  `poetry config pypi-token.pypi <your_token_here>`
-1. Publish to PyPI: `poetry publish`
+1. (in the `ultravox_client` directory) Run `poetry publish --build -u __token__ -p <your_pypi_token>`
