@@ -230,6 +230,12 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         See https://docs.ultravox.ai/tools for more information."""
         self._registered_tools[name] = tool_impl
 
+    def register_tool_implementations(
+        self, impls: dict[str, ClientToolImplementation]
+    ) -> None:
+        """Convenience batch wrapper on register_tool_implementation."""
+        self._registered_tools.update(impls)
+
     async def join_call(
         self,
         join_url: str,
