@@ -400,12 +400,14 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             else:
                 val = result
                 response_type = None
+            assert isinstance(val, str)
             result_msg = {
                 "type": "client_tool_result",
                 "invocationId": invocation_id,
                 "result": val,
             }
             if response_type:
+                assert isinstance(response_type, str)
                 result_msg["responseType"] = response_type
             await self._send_data(result_msg)
         except Exception as e:

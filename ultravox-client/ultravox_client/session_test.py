@@ -151,3 +151,40 @@ async def test_client_tool_implementation(fake_room):
         ).encode("utf-8")
     )
     await s.leave_call()
+
+
+async def test_client_tool_implementation_with_response_type(fake_room):
+    s = session.UltravoxSession()
+
+    def tool_impl(params: dict[str, Any]):
+        assert params == {"foo": "bar"}
+        return '{"strict": true}', "hang-up"
+
+    s.register_tool_implementation("test_tool", tool_impl)
+    await s.join_call("wss://test.ultravox.ai", FakeAudioSource(), FakeAudioSink())
+    await asyncio.sleep(0.001)
+
+    data_packet = rtc.DataPacket(
+        data=json.dumps(
+            {
+                "type": "client_tool_invocation",
+                "toolName": "test_tool",
+                "invocationId": "call_1",
+                "parameters": {"foo": "bar"},
+            }
+        ).encode(),
+        kind=rtc.DataPacketKind.KIND_RELIABLE,
+    )
+    fake_room.emit("data_received", data_packet)
+    await asyncio.sleep(0.001)
+    fake_room.local_participant.publish_data.assert_called_once_with(
+        json.dumps(
+            {
+                "type": "client_tool_result",
+                "invocationId": "call_1",
+                "result": '{"strict": true}',
+                "responseType": "hang-up",
+            }
+        ).encode("utf-8")
+    )
+    await s.leave_call()
