@@ -2,10 +2,11 @@ import asyncio
 import contextlib
 import dataclasses
 import enum
+import inspect
 import json
 import logging
 import urllib.parse
-from typing import Literal
+from typing import Any, Awaitable, Callable, Literal, Tuple
 
 import websockets
 from livekit import rtc
@@ -13,6 +14,7 @@ from livekit import rtc
 from ultravox_client import async_close
 from ultravox_client import audio
 from ultravox_client import patched_event_emitter
+from ultravox_client import room_listener
 
 
 class _AudioSourceToSendTrackAdapter:
@@ -124,6 +126,12 @@ class UltravoxSessionStatus(enum.Enum):
 Role = Literal["user", "agent"]
 
 
+ClientToolImplementation = Callable[
+    [dict[str, Any]],
+    str | Awaitable[str] | Tuple[str, str] | Awaitable[Tuple[str, str]],
+]
+
+
 @dataclasses.dataclass(frozen=True)
 class Transcript:
     """A transcription of a single utterance."""
@@ -156,11 +164,13 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         self._status = UltravoxSessionStatus.DISCONNECTED
 
         self._room: rtc.Room | None = None
+        self._room_listener: room_listener.RoomListener | None = None
         self._socket: websockets.WebSocketClientProtocol | None = None
         self._receive_task: asyncio.Task | None = None
         self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
         self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
         self._experimental_messages = experimental_messages or set()
+        self._registered_tools: dict[str, ClientToolImplementation] = {}
 
     @property
     def status(self):
@@ -203,6 +213,22 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
     def toggle_speaker_muted(self) -> None:
         """Toggles the mute state of the user's speaker (i.e. output audio from the agent)."""
         self.speaker_muted = not self.speaker_muted
+
+    def register_tool_implementation(
+        self, name: str, tool_impl: ClientToolImplementation
+    ) -> None:
+        """Registers a client tool implementation with the given name. If the
+        call is started with a client-implemented tool, this implementation will
+        be invoked when the model calls the tool.
+
+        The implementation should accept a single argument, a dict[str, Any] of
+        parameters defined by the tool, and return a string or a tuple of two
+        strings where the first is the result value and the second is the
+        response type (for affecting the call itself, e.g. to have the agent
+        hang up). The implementation may optionally be async.
+
+        See https://docs.ultravox.ai/tools for more information."""
+        self._registered_tools[name] = tool_impl
 
     async def join_call(
         self,
@@ -257,8 +283,13 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         match msg.get("type", None):
             case "room_info":
                 self._room = rtc.Room()
-                self._room.on("track_subscribed", self._on_track_subscribed)
-                self._room.on("data_received", self._on_data_received)
+                self._room_listener = room_listener.RoomListener(self._room)
+                self._room_listener.add_listener(
+                    "track_subscribed", self._on_track_subscribed
+                )
+                self._room_listener.add_listener(
+                    "data_received", self._on_data_received
+                )
 
                 await self._room.connect(msg["roomUrl"], msg["token"])
                 self._update_status(UltravoxSessionStatus.IDLE)
@@ -297,7 +328,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         assert self._sink_adapter
         self._sink_adapter.start(track)
 
-    def _on_data_received(self, data_packet: rtc.DataPacket):
+    async def _on_data_received(self, data_packet: rtc.DataPacket):
         msg = json.loads(data_packet.data.decode("utf-8"))
         assert isinstance(msg, dict)
         match msg.get("type", None):
@@ -336,9 +367,56 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                             medium,
                         )
                         self._add_or_update_transcript(transcript)
+            case "client_tool_invocation":
+                await self._invoke_client_tool(
+                    msg["toolName"], msg["invocationId"], msg["parameters"]
+                )
             case _:
                 if self._experimental_messages:
                     self.emit("experimental_message", msg)
+
+    async def _invoke_client_tool(
+        self, tool_name: str, invocation_id: str, parameters: dict[str, Any]
+    ):
+        if tool_name not in self._registered_tools:
+            logging.warning(
+                f"Client tool {tool_name} was invoked but is not registered"
+            )
+            result_msg = {
+                "type": "client_tool_result",
+                "invocationId": invocation_id,
+                "errorType": "undefined",
+                "errorMessage": f"Client tool {tool_name} is not registered (Python client)",
+            }
+            await self._send_data(result_msg)
+            return
+        try:
+            result = self._registered_tools[tool_name](parameters)
+            if inspect.isawaitable(result):
+                result = await result
+            if isinstance(result, tuple):
+                val = result[0]
+                response_type = result[1]
+            else:
+                val = result
+                response_type = None
+            result_msg = {
+                "type": "client_tool_result",
+                "invocationId": invocation_id,
+                "result": val,
+            }
+            if response_type:
+                result_msg["responseType"] = response_type
+            await self._send_data(result_msg)
+        except Exception as e:
+            logging.exception(f"Error invoking client tool {tool_name}", exc_info=e)
+            result_msg = {
+                "type": "client_tool_result",
+                "invocationId": invocation_id,
+                "errorType": "implementation-error",
+                "errorMessage": str(e),
+            }
+            await self._send_data(result_msg)
 
     async def _send_data(self, msg: dict):
         assert self._room

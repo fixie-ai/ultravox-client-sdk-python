@@ -39,3 +39,11 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.deptry]
 extend_exclude = [".*test\\.py", ".*tool\\.py"]
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+addopts = "--doctest-modules"
+filterwarnings = [
+    "error",
+]
