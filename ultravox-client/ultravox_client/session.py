@@ -272,7 +272,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         await self._disconnect()
 
     async def send_text(self, text: str):
-        """Sends a message via text. The agent will also respond via text."""
+        """Sends a message via text."""
         if not self._status.is_live():
             raise RuntimeError(
                 f"Cannot send text while not connected. Current status is {self.status}"
