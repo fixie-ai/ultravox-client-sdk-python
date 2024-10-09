@@ -215,10 +215,10 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         """Toggles the mute state of the user's speaker (i.e. output audio from the agent)."""
         self.speaker_muted = not self.speaker_muted
 
-    def set_output_medium(self, medium: Medium) -> None:
+    async def set_output_medium(self, medium: Medium) -> None:
         """Sets the agent's output medium. If the agent is currently speaking, this will
         take effect at the end of the agent's utterance. Also see speaker_muted above."""
-        self._send_data({"type": "set_output_medium", "medium": medium})
+        await self._send_data({"type": "set_output_medium", "medium": medium})
 
     def register_tool_implementation(
         self, name: str, tool_impl: ClientToolImplementation
