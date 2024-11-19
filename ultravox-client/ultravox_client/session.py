@@ -257,7 +257,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         query = dict(urllib.parse.parse_qsl(url_parts[4]))
         if self._experimental_messages:
             query["experimentalMessages"] = ",".join(self._experimental_messages)
-        uv_client_version = f"python_{metadata.version('ultravox-client')}"
+        uv_client_version = f"python_{metadata.version('ultravox-client')}(0.0.2)"
         if client_version:
             uv_client_version += f":{client_version}"
         query["clientVersion"] = uv_client_version

@@ -512,7 +512,7 @@ files = [
 
 [[package]]
 name = "ultravox-client"
-version = "0.1.0"
+version = "0.0.7"
 description = "Python client SDK for Ultravox."
 optional = false
 python-versions = "^3.11"
