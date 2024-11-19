@@ -6,10 +6,12 @@ import inspect
 import json
 import logging
 import urllib.parse
+from importlib import metadata
 from typing import Any, Awaitable, Callable, Literal, Tuple
 
-import websockets
 from livekit import rtc
+from websockets.asyncio import client as ws_client
+from websockets import exceptions as ws_exceptions
 
 from ultravox_client import async_close
 from ultravox_client import audio
@@ -89,11 +91,8 @@ class _AudioSinkFromRecvTrackAdapter:
         async with contextlib.AsyncExitStack() as stack:
             stack.push_async_callback(stream.aclose)
             async for chunk in stream:
-                self._sink.write(
-                    chunk.data.tobytes()
-                    if self._enabled
-                    else b"\x00" * len(chunk.data.tobytes())
-                )
+                data = chunk.frame.data.tobytes()
+                self._sink.write(data if self._enabled else b"\x00" * len(data))
 
 
 class UltravoxSessionStatus(enum.Enum):
@@ -166,7 +165,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
 
         self._room: rtc.Room | None = None
         self._room_listener: room_listener.RoomListener | None = None
-        self._socket: websockets.WebSocketClientProtocol | None = None
+        self._socket: ws_client.ClientConnection | None = None
         self._receive_task: asyncio.Task | None = None
         self._source_adapter: _AudioSourceToSendTrackAdapter | None = None
         self._sink_adapter: _AudioSinkFromRecvTrackAdapter | None = None
@@ -218,7 +217,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
     async def set_output_medium(self, medium: Medium) -> None:
         """Sets the agent's output medium. If the agent is currently speaking, this will
         take effect at the end of the agent's utterance. Also see speaker_muted above."""
-        await self._send_data({"type": "set_output_medium", "medium": medium})
+        await self.send_data({"type": "set_output_medium", "medium": medium})
 
     def register_tool_implementation(
         self, name: str, tool_impl: ClientToolImplementation
@@ -247,18 +246,25 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         join_url: str,
         source: audio.AudioSource | None = None,
         sink: audio.AudioSink | None = None,
+        client_version: str | None = None,
     ) -> None:
         """Connects to a call using the given joinUrl."""
         if self._status != UltravoxSessionStatus.DISCONNECTED:
             raise RuntimeError("Cannot join a new call while already in a call.")
         self._update_status(UltravoxSessionStatus.CONNECTING)
+
+        url_parts = list(urllib.parse.urlparse(join_url))
+        query = dict(urllib.parse.parse_qsl(url_parts[4]))
         if self._experimental_messages:
-            url_parts = list(urllib.parse.urlparse(join_url))
-            query = dict(urllib.parse.parse_qsl(url_parts[4]))
             query["experimentalMessages"] = ",".join(self._experimental_messages)
-            url_parts[4] = urllib.parse.urlencode(query)
-            join_url = urllib.parse.urlunparse(url_parts)
-        self._socket = await websockets.connect(join_url)
+        uv_client_version = f"python_{metadata.version('ultravox-client')}"
+        if client_version:
+            uv_client_version += f":{client_version}"
+        query["clientVersion"] = uv_client_version
+        url_parts[4] = urllib.parse.urlencode(query)
+        join_url = urllib.parse.urlunparse(url_parts)
+
+        self._socket = await ws_client.connect(join_url)
         self._source_adapter = _AudioSourceToSendTrackAdapter(
             source or audio.LocalAudioSource()
         )
@@ -277,7 +283,14 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             raise RuntimeError(
                 f"Cannot send text while not connected. Current status is {self.status}"
             )
-        await self._send_data({"type": "input_text_message", "text": text})
+        await self.send_data({"type": "input_text_message", "text": text})
+
+    async def send_data(self, msg: dict):
+        if not self._room:
+            raise RuntimeError("Cannot send data while not connected")
+        if "type" not in msg:
+            raise ValueError("Message must have a 'type' field")
+        await self._room.local_participant.publish_data(json.dumps(msg).encode("utf-8"))
 
     async def _socket_receive(self):
         assert self._socket
@@ -286,7 +299,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                 if isinstance(message, str):
                     await self._on_message(message)
         except Exception as e:
-            if not isinstance(e, websockets.ConnectionClosed):
+            if not isinstance(e, ws_exceptions.ConnectionClosed):
                 logging.exception("UltravoxSession websocket error", exc_info=e)
         await self._disconnect()
 
@@ -353,32 +366,29 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                     case "speaking":
                         self._update_status(UltravoxSessionStatus.SPEAKING)
             case "transcript":
-                transcript = Transcript(
-                    msg["transcript"]["text"],
-                    msg["transcript"]["final"],
-                    "user",
-                    msg["transcript"]["medium"],
-                )
-                self._add_or_update_transcript(transcript)
-            case "voice_synced_transcript" | "agent_text_transcript":
-                medium = "voice" if msg["type"] == "voice_synced_transcript" else "text"
+                medium = msg.get("medium", "voice")
+                role = msg.get("role", "agent")
                 if msg.get("text", None):
                     transcript = Transcript(
-                        msg["text"], msg.get("final", False), "agent", medium
+                        msg["text"], msg.get("final", False), role, medium
                     )
                     self._add_or_update_transcript(transcript)
                 elif msg.get("delta", None):
                     last_transcript = (
                         self._transcripts[-1] if self._transcripts else None
                     )
-                    if last_transcript and last_transcript.speaker == "agent":
+                    if last_transcript and last_transcript.speaker == role:
                         transcript = Transcript(
                             last_transcript.text + msg["delta"],
                             msg.get("final", False),
-                            "agent",
+                            role,
                             medium,
                         )
                         self._add_or_update_transcript(transcript)
+                    else:
+                        logging.warning(
+                            "Received delta without a previous transcript for the same speaker"
+                        )
             case "client_tool_invocation":
                 await self._invoke_client_tool(
                     msg["toolName"], msg["invocationId"], msg["parameters"]
@@ -400,7 +410,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                 "errorType": "undefined",
                 "errorMessage": f"Client tool {tool_name} is not registered (Python client)",
             }
-            await self._send_data(result_msg)
+            await self.send_data(result_msg)
             return
         try:
             result = self._registered_tools[tool_name](parameters)
@@ -421,7 +431,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             if response_type:
                 assert isinstance(response_type, str)
                 result_msg["responseType"] = response_type
-            await self._send_data(result_msg)
+            await self.send_data(result_msg)
         except Exception as e:
             logging.exception(f"Error invoking client tool {tool_name}", exc_info=e)
             result_msg = {
@@ -430,11 +440,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                 "errorType": "implementation-error",
                 "errorMessage": str(e),
             }
-            await self._send_data(result_msg)
-
-    async def _send_data(self, msg: dict):
-        assert self._room
-        await self._room.local_participant.publish_data(json.dumps(msg).encode("utf-8"))
+            await self.send_data(result_msg)
 
     def _update_status(self, status: UltravoxSessionStatus):
         if self._status == status:

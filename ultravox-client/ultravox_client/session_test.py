@@ -102,7 +102,7 @@ async def fake_ws_server(mocker):
         )
         return server
 
-    mocker.patch("websockets.connect", side_effect=side_effect)
+    mocker.patch("websockets.asyncio.client.connect", side_effect=side_effect)
     yield server
     server.flush()
 
@@ -142,6 +142,7 @@ async def test_client_tool_implementation(fake_room):
             }
         ).encode(),
         kind=rtc.DataPacketKind.KIND_RELIABLE,
+        participant=None,
     )
     fake_room.emit("data_received", data_packet)
     await asyncio.sleep(0.001)
@@ -174,6 +175,7 @@ async def test_client_tool_implementation_with_response_type(fake_room):
             }
         ).encode(),
         kind=rtc.DataPacketKind.KIND_RELIABLE,
+        participant=None,
     )
     fake_room.emit("data_received", data_packet)
     await asyncio.sleep(0.001)

@@ -11,7 +11,7 @@ default: format check test
 
 # Install dependencies for local development.
 install:
-    pip install poetry==1.7.1
+    pip install poetry==1.8.4
     cd ultravox-client && poetry install --sync
     cd example && poetry install --sync --no-root
 
