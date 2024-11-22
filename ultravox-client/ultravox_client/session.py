@@ -156,11 +156,15 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
            The message is included as the first argument to the event handler.
       - "mic_muted": emitted when the user's microphone is muted or unmuted.
       - "speaker_muted": emitted when the user's speaker (i.e. output audio from the agent) is muted or unmuted.
+      - "data_message": emitted when any data message is received (including those
+           typically handled by this SDK). See https://docs.ultravox.ai/api/data_messages.
+           The message is included as the first argument to the event handler.
     """
 
     def __init__(self, experimental_messages: set[str] | None = None) -> None:
         super().__init__()
         self._transcripts: list[Transcript] = []
+        self._stage_transcript_start_index = 0
         self._status = UltravoxSessionStatus.DISCONNECTED
 
         self._room: rtc.Room | None = None
@@ -257,10 +261,11 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         query = dict(urllib.parse.parse_qsl(url_parts[4]))
         if self._experimental_messages:
             query["experimentalMessages"] = ",".join(self._experimental_messages)
-        uv_client_version = f"python_{metadata.version('ultravox-client')}(0.0.2)"
+        uv_client_version = f"python_{metadata.version('ultravox-client')}"
         if client_version:
             uv_client_version += f":{client_version}"
         query["clientVersion"] = uv_client_version
+        query["apiVersion"] = "1"
         url_parts[4] = urllib.parse.urlencode(query)
         join_url = urllib.parse.urlunparse(url_parts)
 
@@ -356,6 +361,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
     async def _on_data_received(self, data_packet: rtc.DataPacket):
         msg = json.loads(data_packet.data.decode("utf-8"))
         assert isinstance(msg, dict)
+        self.emit("data_message", msg)
         match msg.get("type", None):
             case "state":
                 match msg.get("state", None):
@@ -366,29 +372,25 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                     case "speaking":
                         self._update_status(UltravoxSessionStatus.SPEAKING)
             case "transcript":
+                ordinal = msg.get("ordinal", None)
+                if ordinal is None:
+                    logging.warning("Received transcript with no ordinal")
+                    return
                 medium = msg.get("medium", "voice")
                 role = msg.get("role", "agent")
+                final = msg.get("final", False)
                 if msg.get("text", None):
-                    transcript = Transcript(
-                        msg["text"], msg.get("final", False), role, medium
+                    self._add_or_update_transcript(
+                        ordinal, medium, role, final, text=msg["text"]
                     )
-                    self._add_or_update_transcript(transcript)
                 elif msg.get("delta", None):
-                    last_transcript = (
-                        self._transcripts[-1] if self._transcripts else None
+                    self._add_or_update_transcript(
+                        ordinal, medium, role, final, delta=msg["delta"]
                     )
-                    if last_transcript and last_transcript.speaker == role:
-                        transcript = Transcript(
-                            last_transcript.text + msg["delta"],
-                            msg.get("final", False),
-                            role,
-                            medium,
-                        )
-                        self._add_or_update_transcript(transcript)
-                    else:
-                        logging.warning(
-                            "Received delta without a previous transcript for the same speaker"
-                        )
+                else:
+                    logging.warning("Received transcript with no text or delta")
+            case "stage_change":
+                self._stage_transcript_start_index = len(self._transcripts)
             case "client_tool_invocation":
                 await self._invoke_client_tool(
                     msg["toolName"], msg["invocationId"], msg["parameters"]
@@ -448,13 +450,24 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         self._status = status
         self.emit("status")
 
-    def _add_or_update_transcript(self, transcript: Transcript):
-        if (
-            self._transcripts
-            and not self._transcripts[-1].final
-            and self._transcripts[-1].speaker == transcript.speaker
-        ):
-            self._transcripts[-1] = transcript
-        else:
-            self._transcripts.append(transcript)
+    def _add_or_update_transcript(
+        self,
+        ordinal: int,
+        medium: Medium,
+        role: Role,
+        final: bool,
+        *,
+        text: str | None = None,
+        delta: str | None = None,
+    ):
+        update_index = ordinal + self._stage_transcript_start_index
+        if len(self._transcripts) <= update_index:
+            present_text = text or delta or ""
+            self._transcripts.append(Transcript(present_text, final, role, medium))
+        elif text is not None:
+            self._transcripts[update_index] = Transcript(text, final, role, medium)
+        elif delta is not None:
+            self._transcripts[update_index] = Transcript(
+                self._transcripts[update_index].text + delta, final, role, medium
+            )
         self.emit("transcripts")
