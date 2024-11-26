@@ -163,8 +163,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
 
     def __init__(self, experimental_messages: set[str] | None = None) -> None:
         super().__init__()
-        self._transcripts: list[Transcript] = []
-        self._stage_transcript_start_index = 0
+        self._transcripts: list[Transcript | None] = []
         self._status = UltravoxSessionStatus.DISCONNECTED
 
         self._room: rtc.Room | None = None
@@ -182,7 +181,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
 
     @property
     def transcripts(self):
-        return self._transcripts.copy()
+        return [t for t in self._transcripts if t is not None]
 
     @property
     def mic_muted(self) -> bool:
@@ -291,6 +290,7 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         await self.send_data({"type": "input_text_message", "text": text})
 
     async def send_data(self, msg: dict):
+        """Sends a data message to the Ultravox server. See https://docs.ultravox.ai/api/data_messages."""
         if not self._room:
             raise RuntimeError("Cannot send data while not connected")
         if "type" not in msg:
@@ -389,8 +389,6 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                     )
                 else:
                     logging.warning("Received transcript with no text or delta")
-            case "stage_change":
-                self._stage_transcript_start_index = len(self._transcripts)
             case "client_tool_invocation":
                 await self._invoke_client_tool(
                     msg["toolName"], msg["invocationId"], msg["parameters"]
@@ -460,14 +458,20 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         text: str | None = None,
         delta: str | None = None,
     ):
-        update_index = ordinal + self._stage_transcript_start_index
-        if len(self._transcripts) <= update_index:
-            present_text = text or delta or ""
+        present_text = text or delta or ""
+        while len(self._transcripts) < ordinal:
+            self._transcripts.append(None)
+        if len(self._transcripts) == ordinal:
             self._transcripts.append(Transcript(present_text, final, role, medium))
-        elif text is not None:
-            self._transcripts[update_index] = Transcript(text, final, role, medium)
-        elif delta is not None:
-            self._transcripts[update_index] = Transcript(
-                self._transcripts[update_index].text + delta, final, role, medium
-            )
+        else:
+            if text is not None:
+                new_text = text
+            elif delta is not None:
+                prior_transcript = self._transcripts[ordinal]
+                prior_text = prior_transcript.text if prior_transcript else ""
+                new_text = prior_text + delta
+            else:
+                logging.warning("Received transcript with no text or delta")
+                return
+            self._transcripts[ordinal] = Transcript(new_text, final, role, medium)
         self.emit("transcripts")
