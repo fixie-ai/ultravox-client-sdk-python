@@ -372,23 +372,18 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
                     case "speaking":
                         self._update_status(UltravoxSessionStatus.SPEAKING)
             case "transcript":
-                ordinal = msg.get("ordinal", None)
-                if ordinal is None:
-                    logging.warning("Received transcript with no ordinal")
-                    return
+                ordinal = msg.get("ordinal", -1)
                 medium = msg.get("medium", "voice")
                 role = msg.get("role", "agent")
                 final = msg.get("final", False)
-                if msg.get("text", None):
-                    self._add_or_update_transcript(
-                        ordinal, medium, role, final, text=msg["text"]
-                    )
-                elif msg.get("delta", None):
-                    self._add_or_update_transcript(
-                        ordinal, medium, role, final, delta=msg["delta"]
-                    )
-                else:
-                    logging.warning("Received transcript with no text or delta")
+                self._add_or_update_transcript(
+                    ordinal,
+                    medium,
+                    role,
+                    final,
+                    text=msg.get("text", None),
+                    delta=msg.get("delta", None),
+                )
             case "client_tool_invocation":
                 await self._invoke_client_tool(
                     msg["toolName"], msg["invocationId"], msg["parameters"]
@@ -466,12 +461,9 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         else:
             if text is not None:
                 new_text = text
-            elif delta is not None:
+            else:
                 prior_transcript = self._transcripts[ordinal]
                 prior_text = prior_transcript.text if prior_transcript else ""
-                new_text = prior_text + delta
-            else:
-                logging.warning("Received transcript with no text or delta")
-                return
+                new_text = prior_text + (delta or "")
             self._transcripts[ordinal] = Transcript(new_text, final, role, medium)
         self.emit("transcripts")
