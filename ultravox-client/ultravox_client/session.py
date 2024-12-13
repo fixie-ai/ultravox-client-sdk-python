@@ -295,12 +295,14 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             raise RuntimeError("Cannot send data while not connected")
         if "type" not in msg:
             raise ValueError("Message must have a 'type' field")
-        if msg["type"] == "client_tool_result":
-            await self._socket.send(json.dumps(msg))
+        msg_str = json.dumps(msg)
+        msg_bytes = msg_str.encode("utf-8")
+        if len(msg_bytes) > 1024:
+            # Larger messages don't reliably make it to the server via UDP,
+            # so we use our websocket instead.
+            await self._socket.send(msg_str)
         else:
-            await self._room.local_participant.publish_data(
-                json.dumps(msg).encode("utf-8")
-            )
+            await self._room.local_participant.publish_data(msg_bytes)
 
     async def _socket_receive(self):
         assert self._socket

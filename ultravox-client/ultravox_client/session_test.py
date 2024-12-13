@@ -154,6 +154,45 @@ async def test_client_tool_implementation(fake_room, fake_ws_server):
     expected = json.dumps(
         {"type": "client_tool_result", "invocationId": "call_1", "result": "baz"}
     )
+    fake_room.local_participant.publish_data.assert_called_once_with(
+        expected.encode("utf-8")
+    )
+    assert fake_ws_server.sent_messages == []
+    await s.leave_call()
+
+
+async def test_client_tool_implementation_with_large_response(
+    fake_room, fake_ws_server
+):
+    s = session.UltravoxSession()
+
+    async def tool_impl(params: dict[str, Any]):
+        assert params == {"foo": "bar"}
+        await asyncio.sleep(0)
+        return "baz" * 1000
+
+    s.register_tool_implementation("test_tool", tool_impl)
+    await s.join_call("wss://test.ultravox.ai", FakeAudioSource(), FakeAudioSink())
+    await asyncio.sleep(0.001)
+
+    data_packet = rtc.DataPacket(
+        data=json.dumps(
+            {
+                "type": "client_tool_invocation",
+                "toolName": "test_tool",
+                "invocationId": "call_1",
+                "parameters": {"foo": "bar"},
+            }
+        ).encode(),
+        kind=rtc.DataPacketKind.KIND_RELIABLE,
+        participant=None,
+    )
+    fake_room.emit("data_received", data_packet)
+    await asyncio.sleep(0.001)
+    expected = json.dumps(
+        {"type": "client_tool_result", "invocationId": "call_1", "result": "baz" * 1000}
+    )
+    fake_room.local_participant.publish_data.assert_not_called()
     assert fake_ws_server.sent_messages == [expected]
     await s.leave_call()
 
@@ -191,5 +230,8 @@ async def test_client_tool_implementation_with_response_type(fake_room, fake_ws_
             "responseType": "hang-up",
         }
     )
-    assert fake_ws_server.sent_messages == [expected]
+    fake_room.local_participant.publish_data.assert_called_once_with(
+        expected.encode("utf-8")
+    )
+    assert fake_ws_server.sent_messages == []
     await s.leave_call()
