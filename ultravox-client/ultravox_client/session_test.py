@@ -45,6 +45,7 @@ class FakeWsServer:
         super().__init__()
         self._messages = asyncio.Queue()
         self.open = True
+        self._sent = []
 
     def __aiter__(self):
         return self
@@ -58,6 +59,10 @@ class FakeWsServer:
                 self.open = False
             raise message
         return message
+
+    @property
+    def sent_messages(self):
+        return self._sent
 
     @property
     def response_headers(self):
@@ -88,7 +93,7 @@ class FakeWsServer:
         self.flush()
 
     async def send(self, message):
-        raise AssertionError(f"Unexpected web socket message sent by client: {message}")
+        self._sent.append(message)
 
 
 @pytest.fixture(autouse=True)
@@ -120,7 +125,7 @@ class FakeAudioSink(audio.AudioSink):
         pass
 
 
-async def test_client_tool_implementation(fake_room):
+async def test_client_tool_implementation(fake_room, fake_ws_server):
     s = session.UltravoxSession()
 
     async def tool_impl(params: dict[str, Any]):
@@ -146,15 +151,14 @@ async def test_client_tool_implementation(fake_room):
     )
     fake_room.emit("data_received", data_packet)
     await asyncio.sleep(0.001)
-    fake_room.local_participant.publish_data.assert_called_once_with(
-        json.dumps(
-            {"type": "client_tool_result", "invocationId": "call_1", "result": "baz"}
-        ).encode("utf-8")
+    expected = json.dumps(
+        {"type": "client_tool_result", "invocationId": "call_1", "result": "baz"}
     )
+    assert fake_ws_server.sent_messages == [expected]
     await s.leave_call()
 
 
-async def test_client_tool_implementation_with_response_type(fake_room):
+async def test_client_tool_implementation_with_response_type(fake_room, fake_ws_server):
     s = session.UltravoxSession()
 
     def tool_impl(params: dict[str, Any]):
@@ -179,14 +183,13 @@ async def test_client_tool_implementation_with_response_type(fake_room):
     )
     fake_room.emit("data_received", data_packet)
     await asyncio.sleep(0.001)
-    fake_room.local_participant.publish_data.assert_called_once_with(
-        json.dumps(
-            {
-                "type": "client_tool_result",
-                "invocationId": "call_1",
-                "result": '{"strict": true}',
-                "responseType": "hang-up",
-            }
-        ).encode("utf-8")
+    expected = json.dumps(
+        {
+            "type": "client_tool_result",
+            "invocationId": "call_1",
+            "result": '{"strict": true}',
+            "responseType": "hang-up",
+        }
     )
+    assert fake_ws_server.sent_messages == [expected]
     await s.leave_call()

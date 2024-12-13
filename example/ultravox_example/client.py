@@ -1,8 +1,11 @@
 import argparse
 import asyncio
+import datetime
 import logging
+import json
 import signal
 import sys
+from typing import Any
 
 import ultravox_client as uv
 
@@ -50,6 +53,18 @@ async def main():
     def on_error(error):
         logging.exception("Client error", exc_info=error)
         done.set()
+
+    def _get_secret_menu(params: dict[str, Any]) -> str:
+        result_dict = {
+            "date": datetime.date.today().isoformat(),
+            "specialItems": [
+                {"name": "Banana smoothie", "price": 3.99},
+                {"name": "Butter pecan ice cream (one scoop)", "price": 1.99},
+            ],
+        }
+        return json.dumps(result_dict)
+
+    session.register_tool_implementation("getSecretMenu", _get_secret_menu)
 
     await session.join_call(args.join_url)
     loop = asyncio.get_running_loop()

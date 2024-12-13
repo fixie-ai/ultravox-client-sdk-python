@@ -291,11 +291,16 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
 
     async def send_data(self, msg: dict):
         """Sends a data message to the Ultravox server. See https://docs.ultravox.ai/api/data_messages."""
-        if not self._room:
+        if not self._room or not self._socket:
             raise RuntimeError("Cannot send data while not connected")
         if "type" not in msg:
             raise ValueError("Message must have a 'type' field")
-        await self._room.local_participant.publish_data(json.dumps(msg).encode("utf-8"))
+        if msg["type"] == "client_tool_result":
+            await self._socket.send(json.dumps(msg))
+        else:
+            await self._room.local_participant.publish_data(
+                json.dumps(msg).encode("utf-8")
+            )
 
     async def _socket_receive(self):
         assert self._socket
