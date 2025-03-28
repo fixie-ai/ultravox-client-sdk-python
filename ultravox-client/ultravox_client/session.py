@@ -9,6 +9,7 @@ import urllib.parse
 from importlib import metadata
 from typing import Any, Awaitable, Callable, Literal, Tuple
 
+import dataclasses_json
 from livekit import rtc
 from websockets.asyncio import client as ws_client
 from websockets import exceptions as ws_exceptions
@@ -124,11 +125,35 @@ class UltravoxSessionStatus(enum.Enum):
 
 Role = Literal["user", "agent"]
 Medium = Literal["text", "voice"]
+AgentReaction = Literal["speaks", "listens", "speaks-once"]
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class ClientToolResult(dataclasses_json.DataClassJsonMixin):
+    """The result of a client tool invocation."""
+
+    dataclass_json_config = dataclasses_json.config(
+        letter_case=dataclasses_json.LetterCase.CAMEL
+    )["dataclasses_json"]
+
+    result: str
+    """The result of the tool invocation."""
+    response_type: str = "tool-response"
+    """The response type for the tool invocation. See https://docs.ultravox.ai/essentials/tools#changing-call-state"""
+    agent_reaction: AgentReaction = "speaks"
+    """How the agent should react to the tool invocation. See https://docs.ultravox.ai/essentials/tools#controlling-agent-responses-to-tools"""
+    update_call_state: dict[str, Any] | None = None
+    """The new call state, if it should change. Call state can be sent to other tools using an automatic parameter."""
 
 
 ClientToolImplementation = Callable[
     [dict[str, Any]],
-    str | Awaitable[str] | Tuple[str, str] | Awaitable[Tuple[str, str]],
+    str
+    | Awaitable[str]
+    | Tuple[str, str]
+    | Awaitable[Tuple[str, str]]
+    | ClientToolResult
+    | Awaitable[ClientToolResult],
 ]
 
 
@@ -281,13 +306,16 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
         """Leaves the current call (if any)."""
         await self._disconnect()
 
-    async def send_text(self, text: str):
+    async def send_text(self, text: str, deferResponse: bool | None = None):
         """Sends a message via text."""
         if not self._status.is_live():
             raise RuntimeError(
                 f"Cannot send text while not connected. Current status is {self.status}"
             )
-        await self.send_data({"type": "input_text_message", "text": text})
+        data: dict[str, Any] = {"type": "input_text_message", "text": text}
+        if deferResponse is not None:
+            data["deferResponse"] = deferResponse
+        await self.send_data(data)
 
     async def send_data(self, msg: dict):
         """Sends a data message to the Ultravox server. See https://docs.ultravox.ai/api/data_messages."""
@@ -418,21 +446,15 @@ class UltravoxSession(patched_event_emitter.PatchedAsyncIOEventEmitter):
             result = self._registered_tools[tool_name](parameters)
             if inspect.isawaitable(result):
                 result = await result
-            if isinstance(result, tuple):
-                val = result[0]
-                response_type = result[1]
-            else:
-                val = result
-                response_type = None
-            assert isinstance(val, str)
+            if isinstance(result, str):
+                result = ClientToolResult(result=result)
+            elif isinstance(result, tuple):
+                result = ClientToolResult(result=result[0], response_type=result[1])
             result_msg = {
                 "type": "client_tool_result",
                 "invocationId": invocation_id,
-                "result": val,
+                **result.to_dict(),
             }
-            if response_type:
-                assert isinstance(response_type, str)
-                result_msg["responseType"] = response_type
             await self.send_data(result_msg)
         except Exception as e:
             logging.exception(f"Error invoking client tool {tool_name}", exc_info=e)
