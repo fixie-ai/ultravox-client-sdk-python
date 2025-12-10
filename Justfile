@@ -53,3 +53,6 @@ example: format-example check-example # example has no tests right now
 # Run the Ultravox example.
 run-example *FLAGS:
     cd example && uv run python ultravox_example/client.py {{FLAGS}}
+
+run-example-310 *FLAGS:
+    cd example && uv run --python 3.10 python ultravox_example/client.py {{FLAGS}}

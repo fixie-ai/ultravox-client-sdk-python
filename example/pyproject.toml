@@ -3,7 +3,7 @@ name = "ultravox-example"
 version = "0.0.1"
 description = "Example use of ultravox-client package."
 authors = [{ name = "Fixie Team", email = "hello@fixie.ai" }]
-requires-python = ">=3.11,<4"
+requires-python = ">=3.10,<4"
 readme = "README.md"
 license = "Apache-2.0"
 dependencies = ["ultravox-client"]

@@ -2,6 +2,11 @@ import asyncio
 import logging
 from typing import Awaitable
 
+try:
+    from exceptiongroup import ExceptionGroup
+except ImportError:
+    pass  # ExceptionGroup is built-in in Python 3.11+
+
 
 async def async_close(*awaitables_or_none: Awaitable | None):
     coros = [coro for coro in awaitables_or_none if coro is not None]
@@ -19,7 +24,7 @@ async def async_close(*awaitables_or_none: Awaitable | None):
             to_report = (
                 non_cancelled_exceptions[0]
                 if len(non_cancelled_exceptions) == 1
-                else ExceptionGroup(
+                else ExceptionGroup(  # pyright: ignore [reportPossiblyUnboundVariable]
                     "Multiple failures during async_close", non_cancelled_exceptions
                 )
             )
