@@ -1,41 +1,55 @@
-[tool.poetry]
+[project]
 name = "ultravox-client"
-version = "0.0.9"
-packages = [
-    { include = "ultravox_client", from = "." },
-]
+version = "0.1.0"
 description = "Python client SDK for Ultravox."
-authors = ["Fixie Team <hello@fixie.ai>"]
-license = "Apache-2.0"
+authors = [{ name = "Fixie Team", email = "hello@fixie.ai" }]
+requires-python = ">=3.10,<4"
 readme = "README.md"
-homepage = "https://ultravox.ai"
-repository = "https://github.com/fixie-ai/ultravox-client-sdk-python"
-documentation = "https://fixie-ai.github.io/ultradox/"
-keywords = ["ultravox", "audio", "realtime", "artificial intelligence"]
+license = "Apache-2.0"
+keywords = [
+    "ultravox",
+    "audio",
+    "realtime",
+    "artificial intelligence",
+]
+dependencies = [
+    "livekit>=0.18.1,<0.19",
+    "websockets>=14.1,<15",
+    "pyee>=11.0.1,<12",
+    "numpy>=2.1.3,<3",
+    "dataclasses-json>=0.6.7,<0.7",
+    "exceptiongroup>=1.3.1 ; python_full_version < '3.11'",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-livekit = "^0.18.1"
-websockets = "^14.1"
-pyee = "^11.0.1"
-sounddevice = "^0.5.1"
-numpy = "^2.1.3"
-dataclasses-json = "^0.6.7"
+[project.urls]
+Homepage = "https://ultravox.ai"
+Repository = "https://github.com/fixie-ai/ultravox-client-sdk-python"
+Documentation = "https://fixie-ai.github.io/ultradox/"
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.1.3"
-pytest-mock = "^3.10.0"
-pytest-xdist = "^3.3"
-pyright = "^1.1.379"
-deptry = "^0.12.0"
-types-mock = "^5.1.0.2"
-pytest-asyncio = "^0.23.7"
-ruff = "^0.4.1"
+[project.optional-dependencies]
+local = [
+    "sounddevice>=0.5.1,<0.6",
+]
 
+[dependency-groups]
+dev = [
+    "pytest>=7.1.3,<8",
+    "pytest-mock>=3.10.0,<4",
+    "pytest-xdist>=3.3,<4",
+    "pyright>=1.1.379,<2",
+    "deptry>=0.12.0,<0.13",
+    "types-mock>=5.1.0.2,<6",
+    "pytest-asyncio>=0.23.7,<0.24",
+    "ruff>=0.4.1,<0.5",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["uv_build>=0.9.17,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "ultravox_client"
+module-root = ""
 
 
 [tool.deptry]
