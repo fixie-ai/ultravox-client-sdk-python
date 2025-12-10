@@ -3,7 +3,7 @@ import logging
 from typing import Awaitable
 
 try:
-    from exceptiongroup import ExceptionGroup
+    from exceptiongroup import ExceptionGroup  # pyright: ignore [reportMissingImports]
 except ImportError:
     pass  # ExceptionGroup is built-in in Python 3.11+
 
