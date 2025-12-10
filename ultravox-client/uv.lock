@@ -524,8 +524,12 @@ dependencies = [
     { name = "livekit" },
     { name = "numpy" },
     { name = "pyee" },
-    { name = "sounddevice" },
     { name = "websockets" },
+]
+
+[package.optional-dependencies]
+local = [
+    { name = "sounddevice" },
 ]
 
 [package.dev-dependencies]
@@ -547,9 +551,10 @@ requires-dist = [
     { name = "livekit", specifier = ">=0.18.1,<0.19" },
     { name = "numpy", specifier = ">=2.1.3,<3" },
     { name = "pyee", specifier = ">=11.0.1,<12" },
-    { name = "sounddevice", specifier = ">=0.5.1,<0.6" },
+    { name = "sounddevice", marker = "extra == 'local'", specifier = ">=0.5.1,<0.6" },
     { name = "websockets", specifier = ">=14.1,<15" },
 ]
+provides-extras = ["local"]
 
 [package.metadata.requires-dev]
 dev = [
