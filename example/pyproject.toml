@@ -17,7 +17,7 @@ dev = [
     "deptry>=0.12.0,<0.13",
     "types-mock>=5.1.0.2,<6",
     "pytest-asyncio>=0.23.7,<0.24",
-    "ruff>=0.4.1,<0.5",
+    "ruff>=0.4.1",
 ]
 
 [tool.uv.sources]

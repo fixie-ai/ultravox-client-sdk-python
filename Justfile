@@ -12,6 +12,10 @@ default: format check test
 # Install dependencies for local development.
 install:
     curl -LsSf https://astral.sh/uv/install.sh | sh
+    just sync
+
+# Install dependencies for local development, assuming uv is already installed.
+sync:
     cd ultravox-client && uv sync
     cd example && uv sync
 

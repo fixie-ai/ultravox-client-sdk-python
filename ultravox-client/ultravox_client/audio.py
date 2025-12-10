@@ -58,7 +58,7 @@ class LocalAudioSource(AudioSource):
 
     async def stream(self) -> AsyncGenerator[bytes, None]:
         try:
-            import sounddevice
+            import sounddevice  # pyright: ignore [reportMissingImports]
         except ImportError:
             raise ImportError(
                 "The 'sounddevice' module is required for LocalAudioSource."
@@ -89,14 +89,13 @@ class LocalAudioSink(AudioSink):
 
     def __init__(self, sample_rate: int = 48000, num_channels: int = 1) -> None:
         try:
-            import sounddevice
+            import sounddevice  # pyright: ignore [reportMissingImports]
         except ImportError:
             raise ImportError(
                 "The 'sounddevice' module is required for LocalAudioSink."
             )
         super().__init__(sample_rate=sample_rate, num_channels=num_channels)
         self._queue: deque[bytes] = deque()
-        self._stream: sounddevice.OutputStream | None = None
 
         def pull_from_queue(num_bytes: int) -> bytes:
             data = b""
