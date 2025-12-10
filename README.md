@@ -19,5 +19,5 @@ This project uses [uv](https://docs.astral.sh/uv/) to manage dependencies along 
 ## Publishing to PyPi
 1. Bump version number in `ultravox_client/pyproject.toml` (optionally using `uv version --bump major|minor|patch`)
 1. Open a PR and get your changes merged. (This also runs tests, so please only publish from main!)
-1. (in the `ultravox_client` directory) Run `uv build && uv publish --build -u __token__ -p <your_pypi_token>`
+1. (in the `ultravox_client` directory) Run `uv build && uv publish -u __token__ -p <your_pypi_token>`
 1. Please tag the new version in GitHub and create a release, preferably with a changelog.
